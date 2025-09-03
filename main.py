@@ -49,24 +49,48 @@ def send_transaction(tx: Transaction):
         # Load sender account from private key
         account = web3.eth.account.from_key(private_key)
 
+        # Get current balance
+        balance = web3.eth.get_balance(account.address)
+        print("Wallet balance (ETH):", web3.from_wei(balance, "ether"))
+
+        # Convert tx.value to Wei
+        value_wei = web3.to_wei(tx.value, "ether")
+
+        # Estimate gas dynamically
+        gas_estimate = web3.eth.estimate_gas({
+            "to": tx.to_address,
+            "from": account.address,
+            "value": value_wei
+        })
+        gas_price = web3.eth.gas_price
+        total_needed = value_wei + gas_estimate * gas_price
+
+        if total_needed > balance:
+            return {
+                "error": "Insufficient funds. Required: {} ETH, Available: {} ETH".format(
+                    web3.from_wei(total_needed, "ether"),
+                    web3.from_wei(balance, "ether")
+                )
+            }
+
         # Get current nonce
         nonce = web3.eth.get_transaction_count(account.address)
 
         # Build transaction
         transaction = {
             "to": tx.to_address,
-            "value": web3.to_wei(tx.value, "ether"),
-            "gas": 21000,
-            "gasPrice": web3.eth.gas_price,   # dynamic gas
+            "value": value_wei,
+            "gas": gas_estimate,
+            "gasPrice": gas_price,
             "nonce": nonce,
-            "chainId": 11155111  # Sepolia chain ID
+            "chainId": 11155111
         }
 
         # Sign transaction
         signed_tx = web3.eth.account.sign_transaction(transaction, private_key)
 
         # Send transaction
-        tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
 
         return {"tx_hash": web3.to_hex(tx_hash)}
 
@@ -77,6 +101,17 @@ def send_transaction(tx: Transaction):
 def get_transaction(tx_hash: str):
     try:
         tx = web3.eth.get_transaction(tx_hash)
-        return dict(tx)
+
+        # Convert HexBytes and bytes to hex strings for JSON
+        tx_dict = {}
+        for k, v in tx.items():
+            if isinstance(v, (bytes, bytearray)):
+                tx_dict[k] = v.hex()
+            else:
+                tx_dict[k] = v
+
+        return tx_dict
+
     except Exception as e:
         return {"error": str(e)}
+
